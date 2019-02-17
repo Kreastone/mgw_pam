@@ -12,12 +12,10 @@
 -behaviour(gen_server).
 
 %% API
--export([start/0]).  %% TEST START
--export([start_link/0]).
+-export([test_start/0]).  %% TEST START
+-export([show_all/0]).    %% for debug
 
--export([show_all/0]).
--export([login/6]).
--export([logout/1]).
+-export([start_link/0]).
 -export([check_ttl/0]).
 
 %% gen_server callbacks
@@ -64,27 +62,6 @@ show_all() ->
   end,
   mnesia:transaction(F).
 
-%----------
-
--spec(login(
-    Login :: binary(),
-    Password :: binary(),
-    Type :: http | ssh,
-    TTL :: integer(),
-    Host :: binary(),
-    Socket :: term()) ->
-{ok, ID :: integer()} | {error, Reason :: term()}).
-login(Login, Password, Type, Host, TTL, Socket) ->
-  gen_server:call(?MODULE, {login, Login, Password, Type, Host, TTL, Socket}).
-
-%----------
-
--spec(logout(
-    Id :: integer()) ->
-  ok | {error, Reason :: term()}).
-logout(Id) ->
-  gen_server:call(?MODULE, {logout, Id}).
-
 %%--------------------------------------------------------------------
 %% @doc
 %% Starts the server
@@ -92,12 +69,11 @@ logout(Id) ->
 %% @end
 %%--------------------------------------------------------------------
 
-start() ->
+test_start() ->
   mnesia:create_schema([node()]),
   mnesia:start(),
-
+  mnesia:create_table(dn_users, [{attributes, record_info(fields, dn_users)}]),
   mnesia:clear_table(dn_users),
-
   start_link().
 
 -spec(start_link() ->
@@ -161,8 +137,9 @@ handle_call({login, Login, Password, Type, Host, TTL, Socket}, _From, State) ->
       {Pid, {data, [45|Code_Error]}} -> % example: "-1" or "-2,7". 45 is "-"
         parse_error(Code_Error);
       {Pid, {data, Group}} when is_list(Group) ->
-        insert_row(Id, Login, list_to_integer(Group), Type, Host, TTL, Socket),
-        {ok, Id};
+        Int_Group = list_to_integer(Group),
+        insert_row(Id, Login, Int_Group, Type, Host, TTL, Socket),
+        {ok, Id, Int_Group};
       _ ->
         {error, "unknown"}
     after 7000 ->

@@ -13,4 +13,4 @@ file(GLOB HEADERS /home/qqq/Documents/mgw_pam/c_src/*.h)
 
 include_directories(/usr/local/lib/erlang/usr/include/)
 add_library(pam_drv SHARED main.cpp CLocalProto.cpp CBaseProto.cpp CRadProto.cpp CTacPlusProto.cpp)
-target_link_libraries(pam_drv /home/qqq/Documents/slics_drv/c_src/libei.a /home/qqq/Documents/openwrt/staging_dir/target-mipsel_24kc_glibc/lib/libpam.a)
+target_link_libraries(pam_drv /home/qqq/Documents/slics_drv/c_src/libei.a /home/qqq/Documents/slics_drv/c_src/libpam.a)
