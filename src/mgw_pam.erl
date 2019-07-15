@@ -14,7 +14,7 @@
 %% API
 -export([start_link/0]).
 -export([check_ttl/0]).
--export([login/3, logout/1, check_user/1, check_cmd/3]).
+-export([login/3, logout/1, check_user/1, check_cmd/3, get_group/1]).
 
 -define(AVAILABLE_RESOURCES, [
   {<<"sysinfo">>,     [<<"GET">>]},
@@ -109,7 +109,9 @@ start_link() ->
   {ok, State :: #state{}} | {ok, State :: #state{}, timeout() | hibernate} |
   {stop, Reason :: term()} | ignore).
 init([]) ->
-  case erl_ddll:load_driver(?DIR_DRIVER, ?DRIVER) of
+  Dir_Drv = code:priv_dir(mgw_config),
+%%  case erl_ddll:load_driver(?DIR_DRIVER, ?DRIVER) of
+  case erl_ddll:load_driver(Dir_Drv, ?DRIVER) of
     ok ->
       timer:apply_interval(1000, ?MODULE, check_ttl, []),
       Pid = open_port({spawn, ?DRIVER}, []),
@@ -148,11 +150,11 @@ handle_call({login, Login, Password, Type, Host, TTL, Socket}, _From, State) ->
       {Pid, {data, Group}} when is_list(Group) ->
         Int_Group = list_to_integer(Group),
         insert_row(Id, Login, Int_Group, Type, Host, TTL, Socket),
-        {ok, Id, Int_Group};
+        {atomic, {Id, Int_Group}};
       _ ->
-        {error, "unknown"}
+        {aborted, <<"unknown">>}
     after 7000 ->
-      {error, "timeout"}
+      {aborted, <<"timeout">>}
     end,
   {reply, Res, State#state{pid_pam = Pid, last_id = Id}};
 handle_call({logout, Id}, _From, State) ->
@@ -284,16 +286,16 @@ delete_row(ID) ->
 %%  10 - ошибка получения информации о пользователе (GID) с удаленного сервера, ошибка возникает при неверных настройках сервера
 parse_error(Code_Error) ->
   case (Code_Error) of
-    "1" -> {error, "error init"};
-    "2,6" -> {error, "error access"};
-    "2,7" -> {error, "error autorization"};
-    "2,9" -> {error, "error remote server is not available"};
-    "2,28" -> {error, "error missing module pam_raduis.so or pam_tacacs.so"};
-    "2,10" -> {error, "error get info GID"};
-    "3" -> {error, "error c malloc"};
-    "4" -> {error, "error get info GID"};
-    "5" -> {error, "error validation"};
-    _ -> {error, "unknown error"}
+    "1" -> {aborted, <<"error init">>};
+    "2,6" -> {aborted, <<"error access">>};
+    "2,7" -> {aborted, <<"error autorization">>};
+    "2,9" -> {aborted, <<"error remote server is not available">>};
+    "2,28" -> {aborted, <<"error missing module pam_raduis.so or pam_tacacs.so">>};
+    "2,10" -> {aborted, <<"error get info GID">>};
+    "3" -> {aborted, <<"error c malloc">>};
+    "4" -> {aborted, <<"error get info GID">>};
+    "5" -> {aborted, <<"error validation">>};
+    _ -> {aborted, <<"unknown error">>}
   end.
 
 %----------
@@ -301,7 +303,7 @@ parse_error(Code_Error) ->
     Login :: binary(),
     Password :: binary(),
     Host :: binary()) ->
-  {ok, ID :: integer(), Group :: integer()} | {error, Reason :: term()}).
+  {atomic, {ID :: integer(), Group :: integer()}} | {aborted, Reason :: term()}).
 login(Login, Password, Host) ->
   login(Login, Password, http, Host, 1500, null).
 -spec(login(
@@ -311,7 +313,7 @@ login(Login, Password, Host) ->
     Type :: http | ssh,
     TTL :: integer(),
     Socket :: term()) ->
-  {ok, ID :: integer(), Group :: integer()} | {error, Reason :: term()}).
+  {atomic, {ID :: integer(), Group :: integer()}} | {aborted, Reason :: term()}).
 login(Login, Password, Type, Host, TTL, Socket) ->
   gen_server:call(?MODULE, {login, Login, Password, Type, Host, TTL, Socket}).
 
@@ -358,4 +360,14 @@ check_cmd(ID, Module, Action) ->
   case Status of
     true -> ok;
     false -> {error, iolist_to_binary(io_lib:format("~s:~s not implemented", [Module, Action]))}
+  end.
+
+-spec(get_group(ID) -> Result when
+  ID :: non_neg_integer(),
+  Result :: term()).
+get_group(ID) ->
+  case mnesia:transaction(fun mnesia:read/1, [{dn_users, ID}]) of
+    {atomic, [L]} when L#dn_users.group == 0 -> admin;
+    {atomic, [L]} when L#dn_users.group == 100 -> user;
+    {atomic, _} -> error
   end.
